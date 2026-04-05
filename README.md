@@ -1,5 +1,16 @@
 # CFChat
 
+[![GitHub Repo](https://img.shields.io/badge/GitHub-gdz66601%2Fcfchat-181717?logo=github)](https://github.com/gdz66601/cfchat)
+[![License: GPL v3 or later](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-f38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![Hono](https://img.shields.io/badge/Hono-ff6b00?logo=hono&logoColor=white)](https://hono.dev/)
+[![D1](https://img.shields.io/badge/Cloudflare-D1-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
+[![R2](https://img.shields.io/badge/Cloudflare-R2-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/r2/)
+[![GitHub Stars](https://img.shields.io/github/stars/gdz66601/cfchat?style=social)](https://github.com/gdz66601/cfchat/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/gdz66601/cfchat?style=social)](https://github.com/gdz66601/cfchat/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/gdz66601/cfchat)](https://github.com/gdz66601/cfchat/issues)
+
 CFChat 是一个运行在 Cloudflare Workers 上的团队聊天系统。它提供账号体系、公开群组、私有群组、私信、实时消息、文件上传和管理员后台，目标是在 Cloudflare 生态中以较低运维成本实现一套可直接落地的站内 IM。
 
 本项目采用 `GPL-3.0-or-later` 协议，见 [LICENSE](/C:/Users/temp/code/cfchat/LICENSE)。
@@ -149,4 +160,3 @@ MAX_FILE_SIZE = "20971520"
 本项目采用 `GNU GPL v3.0 or later`。
 
 这意味着你可以使用、修改和分发本项目，但如果你分发修改版本，需要继续提供对应源代码，并保持 GPL 兼容。
-
