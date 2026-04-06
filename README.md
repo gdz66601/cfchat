@@ -1,4 +1,7 @@
-# CFChat
+<div align="center">
+  <img src="edgechat.png" alt="CFChat Logo" />
+</div>
+
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-gdz66601%2FEdgechat-181717?logo=github)](https://github.com/gdz66601/Edgechat)
 [![License: GPL v3 or later](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -7,9 +10,6 @@
 [![Hono](https://img.shields.io/badge/Hono-ff6b00?logo=hono&logoColor=white)](https://hono.dev/)
 [![D1](https://img.shields.io/badge/Cloudflare-D1-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
 [![R2](https://img.shields.io/badge/Cloudflare-R2-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/r2/)
-[![GitHub Stars](https://img.shields.io/github/stars/gdz66601/Edgechat?style=social)](https://github.com/gdz66601/Edgechat/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/gdz66601/Edgechat?style=social)](https://github.com/gdz66601/Edgechat/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/gdz66601/Edgechat)](https://github.com/gdz66601/Edgechat/issues)
 
 CFChat 是一个运行在 Cloudflare Workers 上的团队聊天系统。它提供账号体系、公开群组、私有群组、私信、实时消息、文件上传和管理员后台，目标是在 Cloudflare 生态中以较低运维成本实现一套可直接落地的站内 IM。
 
