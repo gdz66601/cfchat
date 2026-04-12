@@ -1,0 +1,32 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": [
+			"**",
+			"!dist",
+			"!frontend/dist",
+			"!**/generated",
+			"!**/*.min.js"
+		]
+	},
+  "formatter": {
+    "enabled": false
+  },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true
+		}
+	},
+  "assist": {
+    "enabled": false
+  },
+	"html": {
+		"experimentalFullSupportEnabled": true
+	}
+}

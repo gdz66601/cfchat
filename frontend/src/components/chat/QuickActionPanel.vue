@@ -86,6 +86,7 @@ const emit = defineEmits(['toggle-mode', 'create-group', 'open-dm']);
         <button
           v-for="user in usersWithoutDm"
           :key="`quick-dm-${user.id}`"
+          type="button"
           class="compact-list__item"
           @click="emit('open-dm', user)"
         >

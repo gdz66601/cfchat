@@ -45,6 +45,7 @@ const currentTitle = computed(
           <button
             v-for="item in navItems"
             :key="item.to"
+            type="button"
             class="admin-shell__nav-item"
             :class="{ 'admin-shell__nav-item--active': route.path.startsWith(item.to) }"
             @click="router.push(item.to)"

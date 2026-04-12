@@ -8,6 +8,10 @@ defineProps({
     type: String,
     default: 'default'
   },
+  type: {
+    type: String,
+    default: 'button'
+  },
   block: {
     type: Boolean,
     default: false
@@ -17,6 +21,7 @@ defineProps({
 
 <template>
   <button
+    :type="type"
     class="ui-button"
     :class="[`ui-button--${variant}`, `ui-button--${size}`, { 'ui-button--block': block }]"
   >

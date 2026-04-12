@@ -1,656 +1,157 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../api.js';
-import store from '../store.js';
-import { connectRoomSocket } from '../ws.js';
 import UiAvatar from '../components/ui/Avatar.vue';
 import UiBadge from '../components/ui/Badge.vue';
 import UiButton from '../components/ui/Button.vue';
 import UiSelect from '../components/ui/Select.vue';
 import UiSurface from '../components/ui/Surface.vue';
 import UiTextarea from '../components/ui/Textarea.vue';
+import { useActiveRoom } from '../composables/useActiveRoom.js';
+import { useChatRoom } from '../composables/useChatRoom.js';
+import { useChatSidebar } from '../composables/useChatSidebar.js';
+import { useChatViewport } from '../composables/useChatViewport.js';
+import store from '../store.js';
 
 const router = useRouter();
-const channels = ref([]);
-const dms = ref([]);
-const users = ref([]);
-const groupMembers = ref([]);
-const messages = ref([]);
-const activeRoom = ref(null);
-const loading = ref(false);
-const sidebarLoading = ref(false);
-const memberLoading = ref(false);
 const error = ref('');
-const wsStatus = ref('closed');
-const composerText = ref('');
-const pendingAttachment = ref(null);
-const sending = ref(false);
-const groupSubmitting = ref(false);
-const inviteSubmitting = ref(false);
-const groupSettingsSaving = ref(false);
-const groupAvatarUploading = ref(false);
-const messagesEl = ref(null);
-const fileInputEl = ref(null);
-const groupAvatarInputEl = ref(null);
-const inviteUserId = ref('');
-const showQuickActions = ref(false);
-const quickActionMode = ref('');
-const showMemberPanel = ref(true);
-const showGroupEditor = ref(false);
-const isMobileViewport = ref(false);
-const mobileView = ref('list');
-let roomSocket = null;
-
-const createGroupForm = reactive({
-  name: '',
-  description: '',
-  kind: 'public',
-  memberUserIds: []
-});
+const activeRoom = ref(null);
 const groupSettingsForm = reactive({
   name: '',
   avatarUrl: '',
   avatarKey: ''
 });
-
 const session = computed(() => store.session);
-const groupVisibilityOptions = [
-  { label: '公开群组', value: 'public', description: '所有成员可见' },
-  { label: '私有群组', value: 'private', description: '仅受邀成员可见' }
-];
-const activeRoomKey = computed(() =>
-  activeRoom.value?.kind && activeRoom.value?.id
-    ? `${activeRoom.value.kind}:${activeRoom.value.id}`
-    : ''
-);
-const canManageActiveRoom = computed(
-  () => activeRoom.value && activeRoom.value.kind !== 'dm' && activeRoom.value.canManage
-);
-const hasManageLayer = computed(() => Boolean(activeRoom.value && activeRoom.value.kind !== 'dm'));
+
+const {
+  isMobileViewport,
+  mobileView,
+  showMemberPanel,
+  syncViewportState,
+  openConversationView,
+  returnToConversationList,
+  toggleMemberPanel
+} = useChatViewport({ activeRoom });
+
+const {
+  activeRoomKey,
+  canManageActiveRoom,
+  hasManageLayer,
+  activeRoomSubtitle,
+  applyActiveChannel,
+  selectDm,
+  syncGroupSettingsForm,
+  roomLabel
+} = useActiveRoom({ activeRoom, groupSettingsForm });
+
+const {
+  channels,
+  users,
+  sidebarLoading,
+  showQuickActions,
+  quickActionMode,
+  groupSubmitting,
+  createGroupForm,
+  groupVisibilityOptions,
+  usersWithoutDm,
+  conversationItems,
+  formatListTime,
+  toggleQuickActions,
+  setQuickActionMode,
+  refreshSidebar,
+  openConversation: openConversationInternal,
+  openDmWithUser: openDmWithUserInternal,
+  createGroup
+} = useChatSidebar({
+  error,
+  applyActiveChannel,
+  selectDm
+});
+
+const {
+  groupMembers,
+  messages,
+  loading,
+  memberLoading,
+  wsStatus,
+  composerText,
+  pendingAttachment,
+  sending,
+  inviteSubmitting,
+  groupSettingsSaving,
+  groupAvatarUploading,
+  showGroupEditor,
+  messagesEl,
+  fileInputEl,
+  groupAvatarInputEl,
+  inviteUserId,
+  inviteUserOptions,
+  formatTime,
+  isOwnMessage,
+  bubbleRowClass,
+  bubbleClass,
+  loadMessages,
+  loadMembers,
+  connectSocket,
+  disconnectSocket,
+  sendMessage,
+  handleComposerKeydown,
+  openFilePicker,
+  openGroupAvatarPicker,
+  uploadAttachment,
+  clearAttachment,
+  loadOlder,
+  openGroupEditor,
+  closeGroupEditor,
+  inviteMember,
+  removeMember,
+  deleteGroup,
+  uploadGroupAvatar,
+  saveGroupSettings
+} = useChatRoom({
+  activeRoom,
+  channels,
+  users,
+  session,
+  error,
+  refreshSidebar,
+  canManageActiveRoom,
+  syncGroupSettingsForm,
+  groupSettingsForm,
+  returnToConversationList
+});
+
 const showSidebarPane = computed(() => !isMobileViewport.value || mobileView.value === 'list');
 const showChatPane = computed(() => !isMobileViewport.value || mobileView.value === 'chat');
 const chatAppClasses = computed(() => ({
   'chat-app--mobile-list': isMobileViewport.value && mobileView.value === 'list',
   'chat-app--mobile-chat': isMobileViewport.value && mobileView.value === 'chat'
 }));
-const availableInviteUsers = computed(() => {
-  const memberIds = new Set(groupMembers.value.map((member) => Number(member.id)));
-  return users.value.filter((user) => !memberIds.has(Number(user.id)));
-});
-const inviteUserOptions = computed(() =>
-  availableInviteUsers.value.map((user) => ({
-    value: String(user.id),
-    label: user.displayName,
-    description: `@${user.username}`
-  }))
-);
-const usersWithoutDm = computed(() => {
-  const dmUserIds = new Set(dms.value.map((item) => Number(item.otherUser.id)));
-  return users.value.filter((user) => !dmUserIds.has(Number(user.id)));
-});
-const conversationItems = computed(() => {
-  const dmItems = dms.value.map((dm) => ({
-    key: `dm:${dm.id}`,
-    id: dm.id,
-    kind: 'dm',
-    title: dm.otherUser.displayName,
-    subtitle: `联系人 @${dm.otherUser.username}`,
-    avatarUrl: dm.otherUser.avatarUrl,
-    fallback: dm.otherUser.displayName,
-    lastMessageAt: dm.lastMessageAt || '',
-    source: dm
-  }));
 
-  const channelItems = channels.value.map((channel) => ({
-    key: `${channel.kind}:${channel.id}`,
-    id: channel.id,
-    kind: channel.kind,
-    title: channel.name,
-    subtitle:
-      channel.kind === 'public' && !channel.isMember
-        ? `公开群组 · 点击加入`
-        : `群主 ${channel.ownerDisplayName || '未知'}`,
-    avatarUrl: channel.avatarUrl || '',
-    fallback: channel.name ? channel.name.slice(0, 1) : '群',
-    lastMessageAt: channel.lastMessageAt || '',
-    source: channel
-  }));
-
-  return [...dmItems, ...channelItems].sort((left, right) => {
-    const leftTime = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
-    const rightTime = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
-    if (leftTime !== rightTime) {
-      return rightTime - leftTime;
-    }
-    return left.title.localeCompare(right.title, 'zh-CN');
-  });
-});
-
-const activeRoomSubtitle = computed(() => {
-  if (!activeRoom.value) {
-    return '从左侧会话列表中选择联系人或群组开始聊天。';
-  }
-
-  if (activeRoom.value.kind === 'dm') {
-    return `与 @${activeRoom.value.otherUser?.username || activeRoom.value.name} 的私信`;
-  }
-
-  const visibility = activeRoom.value.kind === 'private' ? '私有群组' : '公开群组';
-  const owner = activeRoom.value.ownerDisplayName ? ` · 群主 ${activeRoom.value.ownerDisplayName}` : '';
-  const memberCount = activeRoom.value.memberCount ? ` · ${activeRoom.value.memberCount} 位成员` : '';
-  return `${visibility}${owner}${memberCount}`;
-});
-
-function formatTime(value) {
-  return new Date(value).toLocaleString();
-}
-
-function formatListTime(value) {
-  if (!value) {
-    return '';
-  }
-  return new Date(value).toLocaleDateString();
-}
-
-function roomLabel(room) {
-  if (!room) {
-    return '未选择会话';
-  }
-
-  if (room.kind === 'dm') {
-    return room.otherUser?.displayName || room.name;
-  }
-
-  return room.name;
-}
-
-function isOwnMessage(message) {
-  return Number(message.sender.id) === Number(session.value?.userId);
-}
-
-function previousMessage(index) {
-  return index > 0 ? messages.value[index - 1] : null;
-}
-
-function nextMessage(index) {
-  return index < messages.value.length - 1 ? messages.value[index + 1] : null;
-}
-
-function isSameSender(a, b) {
-  return a && b && Number(a.sender.id) === Number(b.sender.id);
-}
-
-function bubbleRowClass(message, index) {
-  return {
-    'chat-bubble-row--own': isOwnMessage(message),
-    'chat-bubble-row--stacked': isSameSender(previousMessage(index), message)
-  };
-}
-
-function bubbleClass(message, index) {
-  return {
-    'chat-bubble--own': isOwnMessage(message),
-    'chat-bubble--continued': isSameSender(previousMessage(index), message),
-    'chat-bubble--tail-hidden': isSameSender(nextMessage(index), message)
-  };
-}
-
-function resetQuickActions() {
-  showQuickActions.value = false;
-  quickActionMode.value = '';
-  createGroupForm.name = '';
-  createGroupForm.description = '';
-  createGroupForm.kind = 'public';
-  createGroupForm.memberUserIds = [];
-}
-
-function toggleQuickActions() {
-  showQuickActions.value = !showQuickActions.value;
-  if (!showQuickActions.value) {
-    quickActionMode.value = '';
-  }
-}
-
-function setQuickActionMode(mode) {
-  quickActionMode.value = quickActionMode.value === mode ? '' : mode;
-}
-
-function toggleMemberPanel() {
-  showMemberPanel.value = !showMemberPanel.value;
-}
-
-function syncViewportState() {
-  const nextIsMobile = window.innerWidth <= 960;
-  if (nextIsMobile === isMobileViewport.value) {
-    return;
-  }
-
-  isMobileViewport.value = nextIsMobile;
-  if (nextIsMobile) {
-    mobileView.value = activeRoom.value ? 'chat' : 'list';
-    showMemberPanel.value = false;
-  } else {
-    mobileView.value = 'chat';
-    showMemberPanel.value = Boolean(activeRoom.value && activeRoom.value.kind !== 'dm');
-  }
-}
-
-function openConversationView() {
-  if (isMobileViewport.value) {
-    mobileView.value = 'chat';
-  }
-}
-
-function returnToConversationList() {
-  if (isMobileViewport.value) {
-    mobileView.value = 'list';
-    showMemberPanel.value = false;
-  }
-}
-
-async function refreshSidebar() {
-  sidebarLoading.value = true;
-  try {
-    const payload = await api.bootstrap();
-    channels.value = payload.channels || [];
-    dms.value = payload.dms || [];
-    users.value = payload.users || [];
-  } finally {
-    sidebarLoading.value = false;
-  }
-}
-
-function applyActiveChannel(channel) {
-  activeRoom.value = {
-    id: channel.id,
-    kind: channel.kind,
-    name: channel.name,
-    description: channel.description,
-    avatarUrl: channel.avatarUrl || '',
-    avatarKey: channel.avatarKey || '',
-    ownerDisplayName: channel.ownerDisplayName || '',
-    canManage: Boolean(channel.canManage),
-    myRole: channel.myRole || '',
-    memberCount: Number(channel.memberCount || 0)
-  };
-
-  syncGroupSettingsForm();
-}
-
-function syncGroupSettingsForm() {
-  groupSettingsForm.name = activeRoom.value?.name || '';
-  groupSettingsForm.avatarUrl = activeRoom.value?.avatarUrl || '';
-  groupSettingsForm.avatarKey = activeRoom.value?.avatarKey || '';
-}
-
-function openGroupEditor() {
-  if (!canManageActiveRoom.value) {
-    return;
-  }
-  syncGroupSettingsForm();
-  showGroupEditor.value = true;
-}
-
-function closeGroupEditor() {
-  showGroupEditor.value = false;
-}
-
-async function selectChannel(channel) {
-  if (channel.kind === 'public' && !channel.isMember) {
-    await api.joinChannel(channel.id);
-    channel.isMember = true;
-    channel.memberCount = Number(channel.memberCount || 0) + 1;
-  }
-
-  applyActiveChannel(channel);
-}
-
-async function selectDm(dm) {
-  activeRoom.value = {
-    id: dm.id,
-    kind: 'dm',
-    name: dm.name,
-    otherUser: dm.otherUser
-  };
-}
-
-async function openConversation(item) {
-  if (item.kind === 'dm') {
-    await selectDm(item.source);
-    openConversationView();
-    return;
-  }
-
-  await selectChannel(item.source);
+async function handleOpenConversation(item) {
+  await openConversationInternal(item);
   openConversationView();
 }
 
-async function openDmWithUser(user) {
-  const payload = await api.openDm(user.id);
-  await refreshSidebar();
-  await selectDm(payload.dm);
+async function handleOpenDmWithUser(user) {
+  await openDmWithUserInternal(user);
   openConversationView();
-  resetQuickActions();
 }
 
-async function loadMessages(before = null, append = false) {
-  if (!activeRoom.value) {
-    return;
-  }
-
-  loading.value = true;
-  error.value = '';
-  try {
-    const payload = await api.getMessages(activeRoom.value.kind, activeRoom.value.id, before);
-    messages.value = append ? [...payload.messages, ...messages.value] : payload.messages;
-    await nextTick();
-    if (!append) {
-      scrollToBottom();
-    }
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadMembers() {
-  if (!activeRoom.value || activeRoom.value.kind === 'dm') {
-    groupMembers.value = [];
-    return;
-  }
-
-  memberLoading.value = true;
-  try {
-    const payload = await api.getChannelMembers(activeRoom.value.id);
-    groupMembers.value = payload.members;
-    activeRoom.value.canManage = payload.room.canManage;
-    activeRoom.value.myRole = payload.room.myRole;
-    activeRoom.value.memberCount = payload.members.length;
-    if (payload.room.name) {
-      activeRoom.value.name = payload.room.name;
-    }
-    activeRoom.value.avatarUrl = payload.room.avatarUrl || '';
-    activeRoom.value.avatarKey = payload.room.avatarKey || '';
-    syncGroupSettingsForm();
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    memberLoading.value = false;
-  }
-}
-
-function disconnectSocket() {
-  if (roomSocket) {
-    roomSocket.close();
-    roomSocket = null;
-  }
-  wsStatus.value = 'closed';
-}
-
-function connectSocket() {
-  if (!activeRoom.value) {
-    return;
-  }
-
-  disconnectSocket();
-  wsStatus.value = 'connecting';
-  roomSocket = connectRoomSocket({
-    kind: activeRoom.value.kind,
-    roomId: activeRoom.value.id,
-    onStatus(status) {
-      wsStatus.value = status;
-    },
-    onMessage(payload) {
-      if (payload.type === 'message' && payload.message) {
-        if (messages.value.some((item) => item.id === payload.message.id)) {
-          return;
-        }
-        messages.value = [...messages.value, payload.message];
-        nextTick().then(scrollToBottom);
-      }
-      if (payload.type === 'error') {
-        error.value = payload.error;
-      }
-    }
-  });
-}
-
-function scrollToBottom() {
-  const element = messagesEl.value;
-  if (element) {
-    element.scrollTop = element.scrollHeight;
-  }
-}
-
-async function sendMessage() {
-  if (!roomSocket || roomSocket.readyState !== WebSocket.OPEN) {
-    error.value = '实时连接尚未建立，请稍后重试';
-    return;
-  }
-
-  if (!composerText.value.trim() && !pendingAttachment.value) {
-    return;
-  }
-
-  sending.value = true;
-  error.value = '';
-  try {
-    roomSocket.send(
-      JSON.stringify({
-        type: 'send',
-        content: composerText.value,
-        attachment: pendingAttachment.value
-      })
-    );
-    composerText.value = '';
-    pendingAttachment.value = null;
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    sending.value = false;
-  }
-}
-
-function handleComposerKeydown(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
-  }
-}
-
-function openFilePicker() {
-  fileInputEl.value?.click();
-}
-
-function openGroupAvatarPicker() {
-  groupAvatarInputEl.value?.click();
-}
-
-async function uploadAttachment(event) {
-  const file = event.target.files?.[0];
-  if (!file) {
-    return;
-  }
-
-  try {
-    const payload = await api.uploadFile(file);
-    pendingAttachment.value = payload.file;
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    event.target.value = '';
-  }
-}
-
-function clearAttachment() {
-  pendingAttachment.value = null;
-}
-
-async function loadOlder() {
-  const firstMessage = messages.value[0];
-  if (!firstMessage) {
-    return;
-  }
-  await loadMessages(firstMessage.id, true);
-}
-
-async function createGroup() {
-  if (!createGroupForm.name.trim()) {
-    error.value = '请填写群组名称';
-    return;
-  }
-
-  groupSubmitting.value = true;
-  error.value = '';
-  try {
-    const payload = await api.createGroup(createGroupForm);
-    await refreshSidebar();
-    await selectChannel(payload.channel);
-    resetQuickActions();
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    groupSubmitting.value = false;
-  }
-}
-
-async function inviteMember() {
-  if (!activeRoom.value || activeRoom.value.kind === 'dm' || !inviteUserId.value) {
-    return;
-  }
-
-  inviteSubmitting.value = true;
-  error.value = '';
-  try {
-    const payload = await api.inviteChannelMembers(activeRoom.value.id, [Number(inviteUserId.value)]);
-    groupMembers.value = payload.members;
-    activeRoom.value.memberCount = payload.members.length;
-    inviteUserId.value = '';
-    await refreshSidebar();
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    inviteSubmitting.value = false;
-  }
-}
-
-async function removeMember(member) {
-  if (!activeRoom.value || activeRoom.value.kind === 'dm') {
-    return;
-  }
-
-  if (!window.confirm(`确认将 ${member.displayName} 移出群组吗？`)) {
-    return;
-  }
-
-  try {
-    const payload = await api.removeChannelMember(activeRoom.value.id, member.id);
-    groupMembers.value = payload.members;
-    activeRoom.value.memberCount = payload.members.length;
-    await refreshSidebar();
-  } catch (currentError) {
-    error.value = currentError.message;
-  }
-}
-
-async function deleteGroup() {
-  if (!activeRoom.value || activeRoom.value.kind === 'dm') {
-    return;
-  }
-
-  if (!window.confirm(`确认删除群组 ${activeRoom.value.name} 吗？`)) {
-    return;
-  }
-
-  try {
-    await api.deleteOwnedChannel(activeRoom.value.id);
-    activeRoom.value = null;
-    messages.value = [];
-    groupMembers.value = [];
-    returnToConversationList();
-    await refreshSidebar();
-  } catch (currentError) {
-    error.value = currentError.message;
-  }
-}
-
-async function uploadGroupAvatar(event) {
-  const file = event.target.files?.[0];
-  if (!file || !activeRoom.value) {
-    return;
-  }
-
-  groupAvatarUploading.value = true;
-  error.value = '';
-  try {
-    const payload = await api.uploadFile(file);
-    groupSettingsForm.avatarUrl = payload.file.url;
-    groupSettingsForm.avatarKey = payload.file.key;
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    groupAvatarUploading.value = false;
-    event.target.value = '';
-  }
-}
-
-async function saveGroupSettings() {
-  if (!activeRoom.value || activeRoom.value.kind === 'dm') {
-    return;
-  }
-
-  const name = groupSettingsForm.name.trim();
-  if (!name) {
-    error.value = '请填写群组名称';
-    return;
-  }
-
-  groupSettingsSaving.value = true;
-  error.value = '';
-  try {
-    const payload = await api.updateChannel(activeRoom.value.id, {
-      name,
-      avatarKey: groupSettingsForm.avatarKey || null
-    });
-    activeRoom.value.name = payload.channel.name;
-    activeRoom.value.avatarKey = payload.channel.avatarKey || '';
-    activeRoom.value.avatarUrl = payload.channel.avatarUrl || '';
-    groupSettingsForm.name = activeRoom.value.name;
-    groupSettingsForm.avatarKey = activeRoom.value.avatarKey || '';
-    groupSettingsForm.avatarUrl = activeRoom.value.avatarUrl || '';
-
-    const channel = channels.value.find((item) => item.id === activeRoom.value.id);
-    if (channel) {
-      channel.name = activeRoom.value.name;
-      channel.avatarKey = activeRoom.value.avatarKey || '';
-      channel.avatarUrl = activeRoom.value.avatarUrl || '';
-    }
-    closeGroupEditor();
-    await refreshSidebar();
-  } catch (currentError) {
-    error.value = currentError.message;
-  } finally {
-    groupSettingsSaving.value = false;
-  }
-}
+const openConversation = handleOpenConversation;
+const openDmWithUser = handleOpenDmWithUser;
 
 async function bootstrap() {
-  sidebarLoading.value = true;
   error.value = '';
   try {
     await refreshSidebar();
     syncViewportState();
     const preferredRoom = conversationItems.value[0] || null;
-
     if (preferredRoom && !isMobileViewport.value) {
-      await openConversation(preferredRoom);
+      await handleOpenConversation(preferredRoom);
     }
   } catch (currentError) {
     error.value = currentError.message;
-  } finally {
-    sidebarLoading.value = false;
   }
 }
 
@@ -674,8 +175,9 @@ watch(activeRoomKey, async (roomKey) => {
 onMounted(() => {
   syncViewportState();
   window.addEventListener('resize', syncViewportState);
-  bootstrap();
+  void bootstrap();
 });
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewportState);
   disconnectSocket();
@@ -776,6 +278,7 @@ onBeforeUnmount(() => {
                       <button
                         v-for="user in usersWithoutDm"
                         :key="`quick-dm-${user.id}`"
+                        type="button"
                         class="chat-room-item chat-room-item--wechat"
                         @click="openDmWithUser(user)"
                       >
@@ -793,6 +296,7 @@ onBeforeUnmount(() => {
               <button
                 v-for="item in conversationItems"
                 :key="item.key"
+                type="button"
                 class="chat-list-item"
                 :class="{ 'chat-list-item--active': activeRoomKey === item.key }"
                 @click="openConversation(item)"
@@ -840,6 +344,7 @@ onBeforeUnmount(() => {
             </UiBadge>
             <button
               v-if="hasManageLayer"
+              type="button"
               class="expand-member-btn expand-member-btn--header"
               :class="{ 'expand-member-btn--hidden': showMemberPanel }"
               :aria-expanded="showMemberPanel ? 'true' : 'false'"
@@ -847,7 +352,15 @@ onBeforeUnmount(() => {
               :tabindex="showMemberPanel ? -1 : 0"
               @click="toggleMemberPanel"
             >
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                viewBox="0 0 24 24"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
                 <path d="M6 9l6 6 6-6"/>
               </svg>
               展开成员面板
@@ -985,11 +498,20 @@ onBeforeUnmount(() => {
                       <strong>群组成员</strong>
                       <button
                         class="collapse-btn"
+                        type="button"
                         :aria-expanded="showMemberPanel ? 'true' : 'false'"
                         @click="toggleMemberPanel"
                         title="收起成员面板"
                       >
-                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="22"
+                          height="22"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          aria-hidden="true"
+                        >
                           <path d="M9 6l6 6-6 6"/>
                         </svg>
                       </button>

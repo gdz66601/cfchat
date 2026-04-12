@@ -33,6 +33,7 @@ const emit = defineEmits(['select']);
     <button
       v-for="item in items"
       :key="item.key"
+      type="button"
       class="conversation-item"
       :class="{ 'conversation-item--active': activeKey === item.key }"
       @click="emit('select', item)"
