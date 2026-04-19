@@ -50,6 +50,20 @@ function toSessionVersion(value) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function parseAdminUsernames(env) {
+  return String(env.ADMIN_USERNAMES || '')
+    .split(',')
+    .map((username) => username.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function isAdminUser(env, user) {
+  const username = String(user?.username || '')
+    .trim()
+    .toLowerCase();
+  return Boolean(Number(user?.is_admin)) || parseAdminUsernames(env).includes(username);
+}
+
 export async function putSession(env, session) {
   await env.SESSIONS.put(session.token, JSON.stringify(session), {
     expirationTtl: SESSION_TTL_SECONDS
@@ -64,7 +78,7 @@ export async function createSession(env, user) {
     username: user.username,
     displayName: user.display_name,
     avatarUrl: user.avatar_key ? `/files/${encodeURIComponent(user.avatar_key)}` : '',
-    isAdmin: Boolean(Number(user.is_admin)),
+    isAdmin: isAdminUser(env, user),
     sessionVersion: toSessionVersion(user.session_version)
   };
 

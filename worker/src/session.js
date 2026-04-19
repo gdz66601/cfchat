@@ -1,4 +1,4 @@
-import { deleteSession, getSession, putSession } from './auth.js';
+import { deleteSession, getSession, isAdminUser, putSession } from './auth.js';
 
 function toNumber(value, fallback = 0) {
   const numeric = Number(value);
@@ -12,7 +12,7 @@ export async function validateSession(env, token) {
   }
 
   const { results } = await env.DB.prepare(
-    `SELECT is_disabled, deleted_at, session_version, is_admin
+    `SELECT username, is_disabled, deleted_at, session_version, is_admin
      FROM users
      WHERE id = ?
      LIMIT 1`
@@ -35,7 +35,7 @@ export async function validateSession(env, token) {
 
   const refreshed = {
     ...session,
-    isAdmin: Boolean(toNumber(user.is_admin)),
+    isAdmin: isAdminUser(env, user),
     sessionVersion: dbVersion
   };
 

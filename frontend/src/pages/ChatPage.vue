@@ -24,6 +24,7 @@ const groupSettingsForm = reactive({
   avatarKey: ''
 });
 const session = computed(() => store.session);
+const showAdminEntry = computed(() => Boolean(session.value?.isAdmin));
 
 const {
   isMobileViewport,
@@ -172,6 +173,10 @@ async function bootstrap() {
 async function logout() {
   await store.logout();
   router.push('/login');
+}
+
+function openAdmin() {
+  router.push('/admin');
 }
 
 watch(activeRoomKey, async (roomKey, previousRoomKey) => {
@@ -344,7 +349,7 @@ onBeforeUnmount(() => {
 
         <div class="chat-sidebar__footer chat-sidebar__footer--simple">
           <UiButton variant="ghost" size="sm" @click="router.push('/settings')">设置</UiButton>
-          <UiButton v-if="session?.isAdmin" variant="ghost" size="sm" @click="router.push('/admin')">
+          <UiButton v-if="showAdminEntry" variant="ghost" size="sm" @click="openAdmin">
             后台
           </UiButton>
           <UiButton variant="ghost" size="sm" @click="logout">退出</UiButton>
@@ -370,6 +375,9 @@ onBeforeUnmount(() => {
             <UiBadge :variant="wsStatus === 'open' ? 'success' : 'secondary'">
               {{ wsStatus === 'open' ? '实时已连接' : '连接中' }}
             </UiBadge>
+            <UiButton v-if="showAdminEntry" variant="secondary" size="sm" @click="openAdmin">
+              后台
+            </UiButton>
             <button
               v-if="hasManageLayer"
               type="button"

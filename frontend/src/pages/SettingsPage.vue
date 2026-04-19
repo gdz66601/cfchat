@@ -7,6 +7,7 @@ import UiButton from '../components/ui/Button.vue';
 
 const router = useRouter();
 const session = computed(() => store.session);
+const showAdminEntry = computed(() => Boolean(session.value?.isAdmin));
 const profileForm = reactive({
   displayName: session.value?.displayName || ''
 });
@@ -77,6 +78,7 @@ async function changePassword() {
         </div>
         <div class="settings-shell__actions">
           <UiButton variant="secondary" @click="router.push('/')">返回聊天</UiButton>
+          <UiButton v-if="showAdminEntry" variant="ghost" @click="router.push('/admin')">管理后台</UiButton>
         </div>
       </header>
 
