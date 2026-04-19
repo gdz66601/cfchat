@@ -3,7 +3,7 @@ import { ref } from "vue";
 export function useChatViewport({ activeRoom }) {
 	const isMobileViewport = ref(false);
 	const mobileView = ref("list");
-	const showMemberPanel = ref(true);
+	const showMemberPanel = ref(false);
 
 	function syncViewportState() {
 		const nextIsMobile = window.innerWidth <= 960;
@@ -17,9 +17,7 @@ export function useChatViewport({ activeRoom }) {
 			showMemberPanel.value = false;
 		} else {
 			mobileView.value = "chat";
-			showMemberPanel.value = Boolean(
-				activeRoom.value && activeRoom.value.kind !== "dm",
-			);
+			showMemberPanel.value = false;
 		}
 	}
 

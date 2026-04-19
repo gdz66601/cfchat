@@ -1,45 +1,40 @@
-import { getSession } from '../auth.js';
-import { insertMessage, isUserActiveById, requireAccessibleRoom } from '../db.js';
+import { insertMessage, requireAccessibleRoom } from '../db.js';
+import { validateSession } from '../session.js';
 import { pickAttachment } from '../utils.js';
 
-const WS_CLOSE_UNAUTHORIZED = 4401;
-const WS_CLOSE_FORBIDDEN = 4403;
-const WS_REASON_UNAUTHORIZED = 'session_invalid';
-const WS_REASON_FORBIDDEN = 'room_forbidden';
-
-function socketMeta(token, room) {
+function socketMeta(session, room) {
   return {
-    token,
-    room: {
-      id: Number(room.id),
-      kind: room.kind,
-      name: room.name
-    }
+    session,
+    room
   };
 }
 
-function normalizeSocketMeta(rawMeta) {
-  if (!rawMeta) {
-    return null;
+function sendSocketError(ws, message) {
+  try {
+    ws.send(JSON.stringify({ type: 'error', error: message }));
+  } catch {
+    // Ignore broken sockets.
+  }
+}
+
+async function revalidateConnection(env, meta) {
+  const auth = await validateSession(env, meta.session.token);
+  if (!auth.ok) {
+    return { ok: false, status: auth.status, message: auth.message };
   }
 
-  const token = String(rawMeta.token || rawMeta.session?.token || '').trim();
-  const room = rawMeta.room;
-  const roomId = Number(room?.id);
-  const kind = String(room?.kind || '').trim();
-
-  if (!token || !Number.isFinite(roomId) || !kind) {
-    return null;
+  const room = await requireAccessibleRoom(
+    env.DB,
+    auth.session.userId,
+    meta.room.kind,
+    meta.room.id,
+    auth.session.isAdmin
+  );
+  if (!room) {
+    return { ok: false, status: 403, message: '你已无权访问该会话' };
   }
 
-  return {
-    token,
-    room: {
-      id: roomId,
-      kind,
-      name: String(room?.name || '')
-    }
-  };
+  return { ok: true, session: auth.session, room };
 }
 
 export class ChannelRoom {
@@ -49,11 +44,56 @@ export class ChannelRoom {
     this.connections = new Map();
 
     for (const socket of this.state.getWebSockets()) {
-      const meta = normalizeSocketMeta(socket.deserializeAttachment());
+      const meta = socket.deserializeAttachment();
       if (meta) {
         this.connections.set(socket, meta);
-      } else {
-        this.closeAndForget(socket, WS_CLOSE_UNAUTHORIZED, WS_REASON_UNAUTHORIZED);
+      }
+    }
+  }
+
+  disconnect(ws, message) {
+    sendSocketError(ws, message);
+    try {
+      ws.close(1008, 'Forbidden');
+    } catch {
+      // Ignore.
+    }
+    this.connections.delete(ws);
+  }
+
+  async ensureAuthorized(ws, meta) {
+    const revalidated = await revalidateConnection(this.env, meta);
+    if (!revalidated.ok) {
+      this.disconnect(ws, revalidated.message);
+      return null;
+    }
+
+    const nextMeta = socketMeta(revalidated.session, revalidated.room);
+    ws.serializeAttachment(nextMeta);
+    this.connections.set(ws, nextMeta);
+    return nextMeta;
+  }
+
+  parsePayload(ws, message) {
+    try {
+      return JSON.parse(message);
+    } catch {
+      sendSocketError(ws, '无效消息格式');
+      return null;
+    }
+  }
+
+  async broadcast(packet) {
+    for (const [socket, storedMeta] of this.connections.entries()) {
+      const authorized = await this.ensureAuthorized(socket, storedMeta);
+      if (!authorized) {
+        continue;
+      }
+
+      try {
+        socket.send(packet);
+      } catch {
+        this.connections.delete(socket);
       }
     }
   }
@@ -68,11 +108,11 @@ export class ChannelRoom {
     const token = url.searchParams.get('token') || '';
     const kind = url.searchParams.get('kind') || '';
     const roomId = Number(url.searchParams.get('id') || '');
-    const session = await getSession(this.env, token);
-
-    if (!session) {
+    const auth = await validateSession(this.env, token);
+    if (!auth.ok) {
       return new Response('Unauthorized', { status: 401 });
     }
+    const session = auth.session;
 
     const room = await requireAccessibleRoom(
       this.env.DB,
@@ -89,11 +129,9 @@ export class ChannelRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
-
-    const meta = socketMeta(session.token, room);
+    const meta = socketMeta(session, room);
     server.serializeAttachment(meta);
     this.connections.set(server, meta);
-
     server.send(
       JSON.stringify({
         type: 'ready',
@@ -108,117 +146,42 @@ export class ChannelRoom {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  closeAndForget(ws, code, reason) {
-    this.connections.delete(ws);
-    try {
-      ws.close(code, reason);
-    } catch {
-      // Ignore close errors from stale sockets.
-    }
-  }
-
-  async validateConnection(meta) {
-    const session = await getSession(this.env, meta.token);
-    if (!session) {
-      return { ok: false, closeCode: WS_CLOSE_UNAUTHORIZED, closeReason: WS_REASON_UNAUTHORIZED };
-    }
-
-    const isActive = await isUserActiveById(this.env.DB, session.userId);
-    if (!isActive) {
-      return { ok: false, closeCode: WS_CLOSE_UNAUTHORIZED, closeReason: WS_REASON_UNAUTHORIZED };
-    }
-
-    const room = await requireAccessibleRoom(
-      this.env.DB,
-      session.userId,
-      meta.room.kind,
-      meta.room.id,
-      session.isAdmin
-    );
-
-    if (!room) {
-      return { ok: false, closeCode: WS_CLOSE_FORBIDDEN, closeReason: WS_REASON_FORBIDDEN };
-    }
-
-    return {
-      ok: true,
-      session,
-      room
-    };
-  }
-
-  async prunePrivateConnections() {
-    for (const [socket, meta] of this.connections.entries()) {
-      if (meta.room.kind !== 'private') {
-        continue;
-      }
-
-      const validation = await this.validateConnection(meta);
-      if (!validation.ok) {
-        this.closeAndForget(socket, validation.closeCode, validation.closeReason);
-      }
-    }
-  }
-
   async webSocketMessage(ws, message) {
     const meta = this.connections.get(ws);
     if (!meta) {
-      this.closeAndForget(ws, WS_CLOSE_UNAUTHORIZED, WS_REASON_UNAUTHORIZED);
       return;
     }
 
-    let payload;
-    try {
-      const text =
-        typeof message === 'string'
-          ? message
-          : message instanceof ArrayBuffer
-            ? new TextDecoder().decode(message)
-            : String(message || '');
-      payload = JSON.parse(text);
-    } catch {
-      ws.send(JSON.stringify({ type: 'error', error: 'Invalid message format' }));
+    const nextMeta = await this.ensureAuthorized(ws, meta);
+    if (!nextMeta) {
+      return;
+    }
+
+    const payload = this.parsePayload(ws, message);
+    if (!payload) {
       return;
     }
 
     if (payload.type !== 'send') {
-      ws.send(JSON.stringify({ type: 'error', error: 'Unsupported message type' }));
-      return;
-    }
-
-    const validation = await this.validateConnection(meta);
-    if (!validation.ok) {
-      ws.send(JSON.stringify({ type: 'error', error: 'Room access has changed' }));
-      this.closeAndForget(ws, validation.closeCode, validation.closeReason);
+      sendSocketError(ws, '不支持的消息类型');
       return;
     }
 
     try {
       const saved = await insertMessage(this.env.DB, {
-        channelId: validation.room.id,
-        senderId: validation.session.userId,
+        channelId: nextMeta.room.id,
+        senderId: nextMeta.session.userId,
         content: payload.content,
         attachment: pickAttachment(payload.attachment)
       });
-
-      if (validation.room.kind === 'private') {
-        await this.prunePrivateConnections();
-      }
-
       const packet = JSON.stringify({
         type: 'message',
         message: saved
       });
 
-      for (const socket of this.connections.keys()) {
-        try {
-          socket.send(packet);
-        } catch {
-          this.connections.delete(socket);
-        }
-      }
+      await this.broadcast(packet);
     } catch (error) {
-      ws.send(JSON.stringify({ type: 'error', error: error.message || 'Failed to send message' }));
+      ws.send(JSON.stringify({ type: 'error', error: error.message || '发送失败' }));
     }
   }
 
@@ -230,4 +193,3 @@ export class ChannelRoom {
     this.connections.delete(ws);
   }
 }
-

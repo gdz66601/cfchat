@@ -322,6 +322,10 @@ export function useChatRoom({
 	}
 
 	async function loadOlder() {
+		if (loading.value) {
+			return;
+		}
+
 		const firstMessage = messages.value[0];
 		if (!firstMessage) {
 			return;

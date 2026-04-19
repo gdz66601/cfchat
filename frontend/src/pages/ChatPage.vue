@@ -13,6 +13,8 @@ import { useChatSidebar } from '../composables/useChatSidebar.js';
 import { useChatViewport } from '../composables/useChatViewport.js';
 import store from '../store.js';
 
+const MEMBER_PANEL_RESTORE_DELAY = 240;
+
 const router = useRouter();
 const error = ref('');
 const activeRoom = ref(null);
@@ -127,6 +129,18 @@ const chatAppClasses = computed(() => ({
   'chat-app--mobile-list': isMobileViewport.value && mobileView.value === 'list',
   'chat-app--mobile-chat': isMobileViewport.value && mobileView.value === 'chat'
 }));
+let memberPanelRestoreTimer = null;
+
+function isChannelRoomKey(roomKey) {
+  return roomKey.startsWith('public:') || roomKey.startsWith('private:');
+}
+
+function clearMemberPanelRestoreTimer() {
+  if (memberPanelRestoreTimer) {
+    clearTimeout(memberPanelRestoreTimer);
+    memberPanelRestoreTimer = null;
+  }
+}
 
 async function handleOpenConversation(item) {
   await openConversationInternal(item);
@@ -160,16 +174,29 @@ async function logout() {
   router.push('/login');
 }
 
-watch(activeRoomKey, async (roomKey) => {
+watch(activeRoomKey, async (roomKey, previousRoomKey) => {
+  clearMemberPanelRestoreTimer();
   if (!roomKey) {
     return;
   }
 
+  const shouldRestorePanel =
+    showMemberPanel.value && isChannelRoomKey(previousRoomKey || '') && isChannelRoomKey(roomKey);
+
   showGroupEditor.value = false;
-  showMemberPanel.value = activeRoom.value?.kind !== 'dm' && !isMobileViewport.value;
+  showMemberPanel.value = false;
   await loadMessages();
   await loadMembers();
   connectSocket();
+
+  if (shouldRestorePanel) {
+    memberPanelRestoreTimer = setTimeout(() => {
+      if (activeRoomKey.value === roomKey && hasManageLayer.value) {
+        showMemberPanel.value = true;
+      }
+      memberPanelRestoreTimer = null;
+    }, MEMBER_PANEL_RESTORE_DELAY);
+  }
 });
 
 onMounted(() => {
@@ -179,6 +206,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearMemberPanelRestoreTimer();
   window.removeEventListener('resize', syncViewportState);
   disconnectSocket();
 });
