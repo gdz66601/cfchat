@@ -178,3 +178,36 @@ Thanks to the contributors who helped improve this project:
 本项目采用 `GNU GPL v3.0 or later`。
 
 这意味着你可以使用、修改和分发本项目，但如果你分发修改版本，需要继续提供对应源代码，并保持 GPL 兼容。
+
+## GitHub Actions Auto Deploy (Cloudflare Token)
+
+This repository includes `.github/workflows/deploy-worker.yml` for automated production deployment.
+
+Trigger rules:
+
+- Push to `master` or `main`
+- Manual run via `workflow_dispatch`
+
+Required GitHub repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+Recommended token scopes:
+
+- `Workers Scripts:Edit`
+- `Workers Routes/Cron Triggers:Edit`
+- `D1:Edit`
+- `Workers KV Storage:Edit`
+- `R2:Edit`
+
+Deployment behavior:
+
+- The workflow runs build first, then ensures Cloudflare resources exist.
+- D1 database: `cfchat-db`
+- KV namespace: `cfchat-sessions`
+- R2 bucket: `cfchat-files`
+- On first-time D1 creation, it initializes schema with `worker/schema.sql`.
+- On later runs, it reuses existing resources and only updates the same Worker (`name = "cfchat"`).
+- Cron triggers are synced by `wrangler deploy` from `[triggers]` in the generated CI config.
+- SQL files in `worker/migrations/` are intentionally not auto-run in CI.

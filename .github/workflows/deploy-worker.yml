@@ -1,0 +1,54 @@
+name: Deploy Worker
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Ensure Cloudflare resources
+        id: ensure_resources
+        run: node .github/scripts/ensure-cloudflare-resources.mjs
+
+      - name: Generate wrangler config for CI
+        shell: bash
+        run: |
+          cp wrangler.example.toml wrangler.ci.toml
+          sed -i "s|YOUR_D1_DATABASE_ID_HERE|${{ steps.ensure_resources.outputs.d1_database_id }}|g" wrangler.ci.toml
+          sed -i "s|YOUR_KV_NAMESPACE_ID_HERE|${{ steps.ensure_resources.outputs.kv_namespace_id }}|g" wrangler.ci.toml
+
+      - name: Initialize D1 schema (first creation only)
+        if: steps.ensure_resources.outputs.d1_created == 'true'
+        run: npx wrangler d1 execute ${{ steps.ensure_resources.outputs.d1_database_name }} --remote --file worker/schema.sql --config wrangler.ci.toml
+
+      - name: Deploy worker
+        run: npx wrangler deploy --config wrangler.ci.toml
