@@ -1,0 +1,229 @@
+/* Liquid Glass Core Tokens */
+:root {
+  /* 基础光线透过率与染色 */
+  --lg-tint: rgba(255, 255, 255, 0.05);
+  --lg-tint-strong: rgba(255, 255, 255, 0.15);
+
+  /* 边缘倒角高光 */
+  --lg-edge-light: rgba(255, 255, 255, 0.4);
+  --lg-edge-strong: rgba(255, 255, 255, 0.6);
+
+  /* 内部体积感阴影（模拟玻璃厚度） */
+  --lg-volume: inset 0 2px 10px rgba(255, 255, 255, 0.3),
+               inset 0 -2px 8px rgba(0, 0, 0, 0.05),
+               inset 1px 0 2px rgba(255, 255, 255, 0.4);
+
+  /* 投射阴影 */
+  --lg-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  --lg-shadow-hover: 0 20px 48px rgba(0, 0, 0, 0.2);
+
+  /* 光学管道滤镜（含亮度饱和度补偿） */
+  --lg-optics: url(#liquid-glass-engine) brightness(110%) saturate(140%);
+  --lg-blur: blur(24px);
+}
+
+/* ==========================================================================
+   基础液态玻璃容器
+   ========================================================================== */
+.liquid-glass {
+  position: relative;
+  isolation: isolate; /* 创建层叠上下文，防止混合模式穿透 */
+  border-radius: var(--radius-panel, 24px);
+  border: 1px solid var(--lg-edge-light);
+  box-shadow: var(--lg-shadow);
+  background: var(--lg-tint);
+  /* 降级方案：基础模糊 */
+  backdrop-filter: var(--lg-blur) saturate(180%);
+  -webkit-backdrop-filter: var(--lg-blur) saturate(180%);
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+  overflow: hidden;
+}
+
+.liquid-glass:hover {
+  border-color: var(--lg-edge-strong);
+  box-shadow: var(--lg-shadow-hover);
+}
+
+/* 光学透镜层（负责 SVG 物理折射） */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  border-radius: inherit;
+  pointer-events: none;
+  /* 核心光学滤镜 */
+  backdrop-filter: var(--lg-optics);
+  -webkit-backdrop-filter: var(--lg-optics);
+}
+
+/* 内部高光体积层（负责玻璃厚度感） */
+.liquid-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--lg-volume);
+}
+
+/* 动态鼠标跟随高光层 */
+.liquid-glass-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(
+    circle 200px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.25),
+    transparent 70%
+  );
+  mix-blend-mode: overlay;
+}
+
+.liquid-glass:hover .liquid-glass-highlight {
+  opacity: 1;
+}
+
+/* 内容层必须在所有光学层之上 */
+.liquid-glass-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* ==========================================================================
+   Edgechat 组件适配
+   ========================================================================== */
+
+/* 1. 主页面卡片适配 */
+.page-card, .app-window, .admin-shell, .settings-shell {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--lg-edge-light) !important;
+  box-shadow: var(--lg-shadow) !important;
+  backdrop-filter: var(--lg-blur) saturate(180%) !important;
+  -webkit-backdrop-filter: var(--lg-blur) saturate(180%) !important;
+  position: relative;
+  isolation: isolate;
+}
+
+.page-card::before, .app-window::before, .admin-shell::before, .settings-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--lg-optics);
+  -webkit-backdrop-filter: var(--lg-optics);
+}
+
+.page-card::after, .app-window::after, .admin-shell::after, .settings-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--lg-volume);
+}
+
+/* 2. 面板和表单适配 */
+.ui-surface, .panel, .login-card {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(16px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 4px 16px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* 3. 输入框和按钮适配 */
+.field input, .field textarea, .field select, .ui-input, .ui-textarea {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  color: var(--text) !important;
+}
+
+.field input:focus, .field textarea:focus, .field select:focus, .ui-input:focus, .ui-textarea:focus {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05), 0 0 0 3px rgba(255, 255, 255, 0.2) !important;
+}
+
+.button, .ui-button {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.5) !important;
+  color: var(--text) !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8) !important;
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+.button:hover:not(:disabled), .ui-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.35) !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.6) !important;
+  transform: translateY(-1px) !important;
+}
+
+.button.secondary, .ui-button--secondary {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 4. 聊天气泡适配 */
+.chat-bubble {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(16px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
+}
+
+.chat-bubble--own {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.6) !important;
+}
+
+/* 5. 侧边栏和顶栏 */
+.chat-sidebar, .admin-shell__sidebar, .window-topbar {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* ==========================================================================
+   无障碍响应与降级
+   ========================================================================== */
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass::before, .page-card::before, .app-window::before {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--surface-solid) !important;
+  }
+}
+
+@media (max-width: 960px) {
+  /* 移动端性能优化：减少模糊强度 */
+  :root {
+    --lg-blur: blur(16px);
+  }
+
+  .page-card::before, .app-window::before {
+    /* 移动端可能不支持复杂的 SVG 滤镜，降级为普通模糊 */
+    backdrop-filter: blur(20px) saturate(150%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+  }
+}
